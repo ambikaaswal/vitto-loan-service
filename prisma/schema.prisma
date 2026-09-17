@@ -1,0 +1,68 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+
+
+model Loan {
+  id                String       @id @default(uuid())
+  principal         Int          // paise
+  annualRateBps     Int          // annual rate * 100, e.g. 18% => 1800
+  tenureMonths      Int
+  disbursementDate  DateTime
+  emiAmount         Int          // paise, computed at creation
+  createdAt         DateTime     @default(now())
+
+  instalments       Instalment[]
+  payments          Payment[]
+}
+
+model Instalment {
+  id                  String   @id @default(uuid())
+  loanId              String
+  loan                Loan     @relation(fields: [loanId], references: [id], onDelete: Restrict)
+  instalmentNumber    Int
+  dueDate             DateTime
+  principalComponent  Int      // paise
+  interestComponent   Int      // paise
+  totalDue            Int      // paise
+  amountPaid          Int      @default(0) // paise
+
+  allocations         PaymentAllocation[]
+
+  @@unique([loanId, instalmentNumber])
+}
+
+model Payment {
+  id             String   @id @default(uuid())
+  loanId         String
+  loan           Loan     @relation(fields: [loanId], references: [id], onDelete: Restrict)
+  amount         Int      // paise
+  paymentDate    DateTime
+  idempotencyKey String   @unique
+  createdAt      DateTime @default(now())
+
+  allocations    PaymentAllocation[]
+}
+
+model PaymentAllocation {
+  id            String     @id @default(uuid())
+  paymentId     String
+  payment       Payment    @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  instalmentId  String
+  instalment    Instalment @relation(fields: [instalmentId], references: [id], onDelete: Restrict)
+  amountApplied Int        // paise
+
+  @@unique([paymentId, instalmentId])
+}
