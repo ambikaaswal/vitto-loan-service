@@ -41,3 +41,7 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 1.Money in paise, integers throughout — principalComponent/interestComponent/totalDue are all rounded to the nearest paise per installment.
 
 2.Rate stored as annualRateBps (basis points, e.g. 1800 = 18.00%) — avoids float entirely even for the rate input itself.
+
+
+## when a payment comes in, what does it settle first?
+1.Oldest overdue instalment first, interest-before-principal within each instalment, like most real EMI systems , clears arrears before naything else
