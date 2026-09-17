@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateSchedule } from "./loan-Scheduling";
+import { generateSchedule } from "./loan-Schedule";
 
 describe("generateSchedule", () => {
   it("matches the brief's worked example: ₹2,00,000 at 18% p.a. over 24 months ≈ ₹9,986/month", () => {
