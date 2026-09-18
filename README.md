@@ -45,3 +45,11 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 ## when a payment comes in, what does it settle first?
 1.Oldest overdue instalment first, interest-before-principal within each instalment, like most real EMI systems , clears arrears before naything else
+
+
+## loan route decisions:
+Zod validates shape first (numbers are actually numbers, positive, etc.) — this catches "non-numeric values" from section 02 before it ever reaches generateSchedule.
+
+generateSchedule's own throws are caught separately and turned into INVALID_INPUT — this is what catches "negative amounts, zero-month tenure" specifically, reusing the validation you already wrote and tested in the schedule function itself, rather than duplicating those rules in the route.
+
+Dates come in as ISO strings over JSON ("2026-01-01T00:00:00.000Z") since raw Date objects don't serialize — the UI/seed script will need to send it that way too.
