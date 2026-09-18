@@ -53,3 +53,10 @@ Zod validates shape first (numbers are actually numbers, positive, etc.) — thi
 generateSchedule's own throws are caught separately and turned into INVALID_INPUT — this is what catches "negative amounts, zero-month tenure" specifically, reusing the validation you already wrote and tested in the schedule function itself, rather than duplicating those rules in the route.
 
 Dates come in as ISO strings over JSON ("2026-01-01T00:00:00.000Z") since raw Date objects don't serialize — the UI/seed script will need to send it that way too.
+
+## Payments route decisions
+Idempotency key is deterministic when not supplied — same loan+amount+date hashes to the same key, so the DB's @unique constraint on idempotencyKey catches accidental duplicates automatically, satisfying the brief's requirement at the database level, not just in app logic.
+
+On duplicate, we don't throw an error — we return the original payment's result again. This is a judgment call worth documenting: silently returning the same result (rather than a 409 error) makes the endpoint safe to retry blindly, which is exactly the "same payment submitted twice must not be applied twice" requirement.
+
+The whole thing runs in a prisma.$transaction — if any part fails partway (e.g. one instalment update fails), nothing is left half-applied.
