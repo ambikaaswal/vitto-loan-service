@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { prisma } from "../../lib/prisma";
-import { generateSchedule } from "../../lib/loan-Schedule";
-import { ok, fail, withAuth } from "../../lib/api-response";
+import { prisma } from "../../../lib/prisma";
+import { generateSchedule } from "../../../lib/loan-Schedule";
+import { ok, fail, withAuth } from "../../../lib/api-response";
 
 const createLoanSchema = z.object({
   principal: z.number().int().positive(),       // paise
