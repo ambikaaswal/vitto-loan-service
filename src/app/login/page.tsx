@@ -5,9 +5,8 @@ import { useRouter } from "next/navigation";
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  signInWithPopup,
 } from "firebase/auth";
-import { auth, googleProvider } from "../../lib/firebase-client";
+import { auth } from "../../lib/firebase-client";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -28,16 +27,6 @@ export default function LoginPage() {
       router.push("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
-    }
-  }
-
-  async function handleGoogleAuth() {
-    setError("");
-    try {
-      await signInWithPopup(auth, googleProvider);
-      router.push("/");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Google sign-in failed");
     }
   }
 
@@ -62,10 +51,6 @@ export default function LoginPage() {
         />
         <button type="submit">{mode === "signin" ? "Sign in" : "Sign up"}</button>
       </form>
-
-      <button onClick={handleGoogleAuth} style={{ marginTop: 8, width: "100%" }}>
-        Continue with Google
-      </button>
 
       <button
         onClick={() => setMode(mode === "signin" ? "signup" : "signin")}

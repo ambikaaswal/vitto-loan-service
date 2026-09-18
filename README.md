@@ -1,62 +1,140 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Vitto Loan Repayment Service
 
-## Getting Started
+A Next.js application that generates a loan repayment schedule, records payments against it, and reports a loan's current position at any time. Built for the Vitto Full Stack SDE (MSME Lending) technical assessment.
 
-First, run the development server:
+## Stack
 
+- **Next.js** (App Router, TypeScript) — API route handlers + single UI page
+- **PostgreSQL** via **Prisma 7** (driver adapters) — hosted on **Neon**
+- **Firebase Authentication** (email/password) — server-side token verification
+- **Vitest** — unit + integration tests
+
+## Setup
+
+1. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+2. **Environment variables** — copy `.env.example` to `.env` and fill in the values (sent separately in the submission email):
+   ```bash
+   cp .env.example .env
+   ```
+   Required variables:
+   - `DATABASE_URL` — Neon Postgres connection string
+   - `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` — Firebase Admin SDK (server-side token verification)
+   - `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID` — Firebase client SDK
+
+3. **Database setup** — schema is created via Prisma migrations, not manually:
+   ```bash
+   npx prisma migrate deploy
+   npx prisma generate
+   ```
+
+4. **(Optional) Seed a sample loan** — creates a ₹2,00,000 loan at 18% p.a. over 24 months, so there's data to view immediately without using the API directly:
+   ```bash
+   npm run seed
+   ```
+   The script prints the created loan's ID — use it to load the loan in the UI.
+
+5. **Run the app**
+   ```bash
+   npm run dev
+   ```
+   Open [http://localhost:3000](http://localhost:3000), sign up with an email/password (or sign in with the test account provided in the submission email), paste in a loan ID, and load it.
+
+## Database
+
+**PostgreSQL, hosted on [Neon](https://neon.tech)**. Schema is defined in `prisma/schema.prisma` and applied via Prisma migrations (`prisma/migrations/`) — never created or altered by hand. A payment cannot exist without a loan: this is enforced at the schema level via a required foreign key (`onDelete: Restrict`), not just in application code. Nothing in this system is hard-deleted (loans, instalments, and payments all use `Restrict` rather than `Cascade`) — this is a financial ledger, and rows are never removed, only added to.
+
+## Tests
+
+Single command, runs unit and integration tests together against a real database:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run test
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- **Unit tests** (`src/lib/loan-schedule.test.ts`, `src/lib/payment-allocation.test.ts`) — pure functions, no database. Cover the EMI formula against the brief's worked example, full amortization (no rupee lost to rounding), invalid input (negative principal, zero tenure), underpayment, overpayment across multiple instalments, and payment ordering.
+- **Integration tests** (`src/app/api/loans/loan-api.integration.test.ts`) — call the actual route handlers against the real Neon database (not mocks): one success path (create + retrieve a loan with computed position), one failure path (unknown loan ID → 404), and one confirming an unauthenticated request is rejected (401). Test data is cleaned up after the run. Firebase token verification is mocked at its single boundary function (`verifyAuthToken`) so the suite doesn't depend on live Firebase network calls or a hardcoded credential — everything downstream of that boundary (routing, validation, database writes) is fully real.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Endpoint reference
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+All endpoints require `Authorization: Bearer <Firebase ID token>`. Requests without a valid token receive `401 { error: { code: "UNAUTHENTICATED", message } }`.
 
-## Learn More
+### `POST /api/loans` — create a loan
+```json
+// Request
+{
+  "principal": 20000000,        // paise
+  "annualRateBps": 1800,        // basis points, 1800 = 18.00%
+  "tenureMonths": 24,
+  "disbursementDate": "2026-01-01T00:00:00.000Z"
+}
 
-To learn more about Next.js, take a look at the following resources:
+// Response 201
+{ "data": { "id": "...", "principal": 20000000, "...": "...", "instalments": [ /* 24 rows */ ] } }
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### `GET /api/loans/:id` — get a loan
+Returns the full schedule plus a computed current position.
+```json
+// Response 200
+{
+  "data": {
+    "id": "...",
+    "instalments": [
+      { "instalmentNumber": 1, "dueDate": "...", "principalComponent": 698482, "interestComponent": 300000, "totalDue": 998482, "amountPaid": 500000 }
+    ],
+    "position": {
+      "outstandingPrincipal": 19500000,
+      "nextDueDate": "2026-02-01T00:00:00.000Z",
+      "nextDueAmount": 498482,
+      "overdueAmount": 7487856
+    }
+  }
+}
+```
+Unknown loan ID → `404 { error: { code: "NOT_FOUND", message } }`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### `POST /api/loans/:id/payments` — record a payment
+```json
+// Request
+{
+  "amount": 500000,             // paise
+  "date": "2026-02-05T00:00:00.000Z"
+}
 
-## Deploy on Vercel
+// Response 201 (or 200 on a detected duplicate — see below)
+{
+  "data": {
+    "payment": { "id": "...", "amount": 500000, "...": "..." },
+    "allocations": [ { "instalmentId": "...", "amountApplied": 500000 } ],
+    "duplicate": false
+  }
+}
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+**Common error shape** across all three endpoints:
+```json
+{ "error": { "code": "INVALID_INPUT" | "NOT_FOUND" | "UNAUTHENTICATED" | "INTERNAL", "message": "..." } }
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Money type
 
+**Integer paise throughout the entire system** — the database, the API, and the schedule/allocation logic never use a floating-point type for money. `principalComponent`, `interestComponent`, `totalDue`, `amountPaid`, and `amount` are all stored and computed as whole-number paise (₹1 = 100 paise). The interest rate itself follows the same rule: it's stored as `annualRateBps` (basis points — e.g. `1800` = 18.00%), an integer, rather than a float or Prisma `Decimal`. This avoids floating-point rounding error entirely, at the cost of needing to divide by 100 (rupees) or 10000 (percent) at the display layer.
 
+## Allocation and rounding decisions
 
-## Key Decisions:
-1.Money in paise, integers throughout — principalComponent/interestComponent/totalDue are all rounded to the nearest paise per installment.
+**EMI calculation and rounding.** The EMI is computed once via the standard amortization formula and rounded to the nearest paise. Because per-instalment rounding can drift the total principal recovered away from the exact original principal by a rupee or two over the life of the loan, **the final instalment absorbs the entire remaining principal balance** rather than using the formula-derived amount — this is the brief's own "final instalment is the conventional place for the remainder" rule, and it guarantees the schedule always fully amortizes to exactly zero with nothing lost to rounding.
 
-2.Rate stored as annualRateBps (basis points, e.g. 1800 = 18.00%) — avoids float entirely even for the rate input itself.
+**Payment allocation order.** When a payment comes in, it is applied to the **oldest outstanding (unpaid or partially-paid) instalment first**, in strict instalment-number order — this mirrors how most real EMI systems clear arrears before anything else, and is easy to defend as a default. Within a single instalment, the payment is applied as **one lump sum against `totalDue`** — this implementation does not split a partial payment into "this much was interest, this much was principal" within an instalment; the instalment is settled as a single unit. One practical consequence: `outstandingPrincipal` in the "current position" response is the sum of `principalComponent` for every instalment not yet *fully* paid — a partially-paid instalment still counts its full principal component as outstanding until that instalment is completely settled.
 
+**Underpayment.** A payment smaller than the instalment due is applied to that instalment's `amountPaid`, leaving it partially settled (`amountPaid < totalDue`). It remains the "next due" instalment until a later payment closes the gap.
 
-## when a payment comes in, what does it settle first?
-1.Oldest overdue instalment first, interest-before-principal within each instalment, like most real EMI systems , clears arrears before naything else
+**Overpayment.** Once a payment fully settles the current oldest instalment, **the excess rolls forward and settles the next instalment(s) in order** — it does not reduce principal ahead of schedule or trigger early loan closure. This was a deliberate choice: the brief explicitly lists prepayment/foreclosure as out of scope, and letting overpayment reduce principal early would edge into exactly that. Rolling forward keeps the behavior contained to "settling what's due," which is squarely in scope. If a payment exceeds the entire remaining schedule, the excess is returned as `unallocatedAmount` by the allocation function rather than silently absorbed (the route currently has no remaining instalments to apply it to in that edge case).
 
+**Late payment.** There is no separate penalty/late-fee mechanism (explicitly out of scope per the brief). A late payment is instead reflected purely through the "current position" calculation: any unpaid instalment whose due date has already passed contributes to `overdueAmount`, which is recalculated live against the current date on every `GET /api/loans/:id` call — nothing is pre-computed or cached.
 
-## loan route decisions:
-Zod validates shape first (numbers are actually numbers, positive, etc.) — this catches "non-numeric values" from section 02 before it ever reaches generateSchedule.
+**Duplicate submission.** Every payment is written with a deterministic `idempotencyKey` — a hash of `loanId + amount + date` when the caller doesn't supply one explicitly. This key has a `@unique` constraint at the database level (Prisma schema), so a duplicate submission is caught by the database itself, not only by application logic. On a detected duplicate, the endpoint does **not** throw an error — it returns the original payment's result again (with `duplicate: true`). This makes the endpoint safe to retry blindly (e.g. after a network timeout where the client isn't sure if the first request succeeded), which is the practical intent behind "the same payment must not be applied twice."
 
-generateSchedule's own throws are caught separately and turned into INVALID_INPUT — this is what catches "negative amounts, zero-month tenure" specifically, reusing the validation you already wrote and tested in the schedule function itself, rather than duplicating those rules in the route.
-
-Dates come in as ISO strings over JSON ("2026-01-01T00:00:00.000Z") since raw Date objects don't serialize — the UI/seed script will need to send it that way too.
-
-## Payments route decisions
-Idempotency key is deterministic when not supplied — same loan+amount+date hashes to the same key, so the DB's @unique constraint on idempotencyKey catches accidental duplicates automatically, satisfying the brief's requirement at the database level, not just in app logic.
-
-On duplicate, we don't throw an error — we return the original payment's result again. This is a judgment call worth documenting: silently returning the same result (rather than a 409 error) makes the endpoint safe to retry blindly, which is exactly the "same payment submitted twice must not be applied twice" requirement.
-
-The whole thing runs in a prisma.$transaction — if any part fails partway (e.g. one instalment update fails), nothing is left half-applied.
+**Invalid input.** Two layers of validation: Zod schemas on each route catch malformed shapes (non-numeric values, missing fields) before any business logic runs; `generateSchedule()`'s own checks (reused from the tested unit function, not duplicated) catch semantically invalid values — negative principal, zero or negative tenure, negative interest rate. An unknown loan ID returns `404 NOT_FOUND` rather than a generic error.
