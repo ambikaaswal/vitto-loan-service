@@ -31,11 +31,14 @@ A Next.js application that generates a loan repayment schedule, records payments
    npx prisma generate
    ```
 
-4. **(Optional) Seed a sample loan** — creates a ₹2,00,000 loan at 18% p.a. over 24 months, so there's data to view immediately without using the API directly:
-   ```bash
+4. **Seed a sample loan** (recommended) — creates a ₹2,00,000 loan at 18% p.a. over 24 months, so there's data to view immediately without using the API directly:
+```bash
    npm run seed
-   ```
-   The script prints the created loan's ID — use it to load the loan in the UI.
+```
+   The script prints the created loan's ID to the terminal — copy it and paste it into the UI's "Loan ID" field to load the schedule. A loan is not created automatically; this step (or a manual `POST /api/loans` call) is required before the UI has anything to display.
+
+   A sample loan is already seeded in the database:
+  Loan ID: d27474f0-6b5c-4012-9a90-64d63124e981
 
 5. **Run the app**
    ```bash
